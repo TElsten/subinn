@@ -1,0 +1,485 @@
+---
+title: "Figures"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "D:/Documents/Jaar6 2019-2020/Thesis/Code")
+```
+
+```{r}
+rm(list=ls())
+setwd("D:/Documents/Jaar6 2019-2020/Thesis/Code")
+library(class)
+library(quadprog)
+library(mlbench)
+library(glmnet)
+library(tidyverse)
+library(ggplot2)
+library(viridis)
+source('ModelSUBiNN.R')
+source('DataSets.R')
+```
+
+
+
+# [Figure 1] K pilot study
+Plots all the heatmaps of base-learner selection for diabetes and dystrophy, for different values of K
+
+```{r}
+PlotFeatureSelection <- function(nrVars, selections, accuracy, k, dataset) {
+  features <- GetBaseLearnerMatrix(nrVars)
+  features[2,1:nrVars] <- 1:nrVars
+  selectionData <- data.frame(
+    selected = colSums(selections), 
+    variable1 = factor(features[1,]), 
+    variable2 = factor(features[2,]))
+  
+  plt <- 
+    ggplot(selectionData, aes(x=variable1, y=variable2, fill=selected)) +
+    geom_tile() +
+    theme_light() +
+    geom_text(aes(label = selected, colour = ifelse(selected > 750, "black", "white"))) +
+    scale_colour_manual(values=c("white"="white", "black"="black")) +
+    scale_fill_viridis() +
+    labs(x="x1", y="x2") + 
+    theme_bw() +
+    labs(fill="Freq") +
+    theme(legend.position = "none") # +
+    # ggtitle(paste("Variables selected (100reps, 10-fold), ", dataset, " K=", k, ", acc=", accuracy, sep=""))
+  
+  return(plt)
+  
+}
+
+load("../Results/StudyK/StudyKdiabetesResults.RData")
+StudyKdiabetesResults <- datasetResults
+load("../Results/StudyK/StudyKdystrophyResults.RData")
+StudyKdystrophyResults <- datasetResults
+
+# Diabetes
+for (k in c("5", "10", "sqrt", "opt")){
+  selections <- StudyKdiabetesResults[[paste("K", k,"diabetesselection", sep="")]]
+  accuracy <- round(colMeans( StudyKdiabetesResults[[paste("K", k, "diabetes", sep="")]])[2], 3)
+  cat(accuracy)
+  print(PlotFeatureSelection(8, selections, accuracy, k, "diabetes"))
+}
+
+# Dystrophy
+for (k in c("5", "10", "sqrt", "opt")){
+  selections <- StudyKdystrophyResults[[paste("K", k,"dystrophyselection", sep="")]]
+  accuracy <- round(colMeans( StudyKdystrophyResults[[paste("K", k, 'dystrophy', sep="")]])[2], 3)
+  cat(accuracy)
+  print(PlotFeatureSelection(5, selections, accuracy, k, "dystrophy"))
+}
+```
+
+# Plot simulation study base-learner selection
+The heatmaps for different values of w
+
+## Simulation base-learner selection heatmaps
+
+-  [Figure 2] low covariance, w=1, 500uninformatives
+-  [Figure 4] high covariance, w=20, 50uninformatives
+-  [Figure 5] high correlation, w=1, 500 uninformatives
+-  [Figure 6] low correlation, w=20, 50 uninformatives
+
+```{r}
+PlotSimulationHeatmap <- function(w, uninf, corr = '', colorThreshold = 275) {
+  load(paste("../Results/Sim1/Sim1", corr, "uninf", uninf, "w", w, ".RData", sep=""))
+  chosenCoefs <- colSums(allResults[[3]] != 0)
+  howManyCoefsPerRun <- rowSums(allResults[[3]] != 0)
+  
+  cat("Average number of coefficients per run:", mean(howManyCoefsPerRun))
+  varCombinations <- GetBaseLearnerMatrix(uninf + 20)
+  informativeCombinations <- GetBaseLearnerMatrix(20)
+  varNames <- apply(varCombinations, 2, function(col) {
+    return(paste(col, collapse="-"))
+  })
+  
+  # Find out the location of informative features
+  informativeCombinationLocations <- which(apply(varCombinations, 2, function(col) {
+    return(col[1] <= 20 & col[2] <= 20)
+  }))
+  
+  variableSelectionDf <- data.frame(
+    selected = chosenCoefs[informativeCombinationLocations], 
+    V1 = factor(informativeCombinations[1,]), 
+    V2 = factor(informativeCombinations[2, ]))
+  
+  plt <- variableSelectionDf %>%
+    ggplot(aes(x=V1, y=V2, fill=selected)) +
+    geom_tile() +
+    # Set a color threshold to make the text better visible
+    geom_text(aes(label=selected, colour=ifelse(selected > 250, '#424242', "white")), show.legend = FALSE) +
+    scale_colour_manual(values=c("white"="white", "#424242"="#666666")) +
+    scale_fill_viridis() +
+    labs(x="x1", y="x2") + 
+    theme_bw() +
+    labs(fill="Freq")
+  
+  return(plt)
+}
+
+PlotSimulationHeatmap(1, 500, '', 290)
+PlotSimulationHeatmap(20, 50, '')
+PlotSimulationHeatmap(1, 500, 'CORR')
+PlotSimulationHeatmap(20, 50, 'CORR')
+
+```
+
+## [Figure 3] Illustration of effect of covariance on kNN classification
+
+```{r}
+
+data <- GetCovarianceData(0, 1000, 20)
+X <- data[, -ncol(data)]
+y <- data[, ncol(data)]
+data <- data.frame(x = X, y=factor(y))
+
+# 1-20
+ggplot(data, aes(x=x.1, y=x.20, col=y), color=y) +
+  geom_point() +
+  xlim(c(-15, 20)) + 
+  ylim(c(-15, 18)) +
+  scale_color_viridis_d() +
+  theme_bw() + 
+  theme(
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),legend.position="none",
+        panel.background=element_blank(),panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),plot.background=element_blank())
+  
+# 1-2
+ggplot(data, aes(x=x.1, y=x.2, col=y), color=y) +
+  geom_point() +
+  xlim(c(-15, 20)) + 
+  ylim(c(-15, 18)) +
+  scale_color_viridis_d() +
+  theme_bw() + 
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),legend.position="none",
+    panel.background=element_blank(),panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),plot.background=element_blank())
+```
+
+
+# Plot Benchmark Base-learner Selection
+```{r}
+
+plotVariableSelection <- function(dataName, withLabels) {
+  X <- GetBenchmarkData(dataName, FALSE)[[1]]
+  load(paste("../Results/Bench/Bench", dataName, ".RData", sep=""))
+  
+  chosenCoefs <- colSums(results[[3]] != 0)
+  howManyCoefsPerRun <- rowSums(results[[3]] != 0)
+  nrOfFeatures <- ncol(X)
+  mean(howManyCoefsPerRun)
+  varCombinations <- GetBaseLearnerMatrix(nrOfFeatures)
+  varNames <- apply(varCombinations, 2, function(col) {
+    return(paste(col, collapse="-"))
+  })
+  
+  
+  unconstrainedSelection <- data.frame(
+    selected = chosenCoefs, 
+    V1 = factor(varCombinations[1, ]), 
+    V2 = factor(varCombinations[2, ])
+  ) 
+  
+  plot <- 
+    unconstrainedSelection %>%
+    ggplot(aes(x=V1, y=V2, fill=selected)) +
+    geom_tile() +
+    scale_fill_viridis() +
+    geom_text(aes(label=ifelse(withLabels, selected, ''), colour=ifelse(selected > 500, '#424242', "white")), show.legend = FALSE) +
+    scale_colour_manual(values=c("white"="white", "#424242"="black")) +
+    labs(x="x1", y="x2") + 
+    theme_bw() +
+    theme() + 
+    labs(fill="Freq")
+  plot;
+  
+  return(plot)
+  
+}
+
+dataSets <- c('haber', 'mammo', 'trans', 'phone', 'bupa', 'appen', 'dystr',
+              'diabe', 'biops', 'heart', 'india', 'solar', 'credi', 'house',
+              'bands', 'hepat', 'twono', 'germa', 'wpbc', 'sonar',
+              'glauc', 'musk')
+
+for(dataSet in dataSets){
+  print(plotVariableSelection(dataSet, withLabels = FALSE))
+}
+
+```
+
+
+# Bias/variance plot of cylinder bands
+
+```{r}
+GetMseData <- function(dataSet){
+  allMses <- matrix(NA, nrow=1000, ncol=8)
+  allSums <- rep(NA, 1000)
+  counter <- 1
+  for(rep in 1:100){
+    result <- tryCatch({
+      load( paste("../Results/Bench/raw/Bench", dataSet, "Rep", rep, ".RData", sep=""))
+      TRUE
+    }, error = function(error) {
+      cat('ERROR!', dataSet, ' ', rep, '\n')
+      FALSE
+    }, warning = function(warning) {
+      cat('Warning no file for ', dataSet, ' ', rep, '\n')
+      FALSE
+    })
+    
+    if (result){
+      allSums[rep] <- mean(rowSums(results[[3]]))
+      allPredictions <- results[[4]]
+      y <- allPredictions[, 9]
+      allPredictions <- allPredictions[, 1:8]
+      
+      # Keep the average MSE of each rep
+      mse <- apply(allPredictions, 2, function(col) {
+        (col - y)^2
+      })
+      allMses[rep, ] <- colMeans(mse)
+    }
+    counter <- counter + 1
+
+  }
+  
+  return(allMses)
+}
+
+PlotMses <- function(dataSet){
+  
+  allMses <- GetMseData(dataSet)
+  p <- allMses %>%
+    as.data.frame() %>%
+    pivot_longer(cols=V1:V8, names_to="model", values_to="mse") %>%
+    cbind("avg" = rep(colMeans(allMses), nrow(allMses))) %>%
+    ggplot(aes(x=model, y=mse)) + 
+    geom_boxplot(aes(model,  avg), size=0.5) +
+    geom_jitter(position=position_jitter(width=.2), size=1) + 
+    scale_x_discrete(labels=c("kNN", "BkNN", "RkNN", "MFS", "RF", "SVM", "ESkNN", "SUBiNN")) +
+    theme_bw() + 
+    theme(axis.title.x=element_blank(), title=element_text(dataSet))
+  
+  return(p)
+  
+}
+
+PlotMses('bands')
+
+```
+
+# Example of interpretation; Haberman dataset
+
+With decision boundaries like in Elements of Statistical Learning figure 2.2
+Thanks to stackoverflow
+ [link to SO 1](https://stats.stackexchange.com/questions/21572/how-to-plot-decision-boundary-of-a-k-nearest-neighbor-classifier-from-elements-o) and
+[link to SO 2](https://stackoverflow.com/questions/31234621/variation-on-how-to-plot-decision-boundary-of-a-k-nearest-neighbor-classifier-f)
+
+
+## Plot Age vs Nodes: transformed back to original scale
+
+Because kNN classification depends on the scale of variables, we have to calculate the decision boundary based on the scaled data. Then to plot it, we transform it the corresponding unscaled data
+```{r}
+train <- GetBenchmarkData('haber')[[1]][,c(1,3)]
+trainUnstandardized <- GetBenchmarkData('haber', FALSE)[[1]][,c(1,3)]
+
+y <- GetBenchmarkData('haber')[[2]]
+testUnstandardized <- expand.grid(x=seq(min(trainUnstandardized[,1]),
+                                        max(trainUnstandardized[,1]), by=1), 
+                                  y=seq(min(trainUnstandardized[,2]), 
+                                        max(trainUnstandardized[,2]), by=1))
+
+testStandardized <- testUnstandardized
+sd1 <- sd(trainUnstandardized[,1])
+mu1 <- mean(trainUnstandardized[,1])
+testStandardized[,1] <- (testStandardized[,1] - mu1)/sd1
+  
+sd2 <- sd(trainUnstandardized[,2])
+mu2 <- mean(trainUnstandardized[,2])
+testStandardized[,2] <- (testStandardized[,2] - mu2)/sd2
+  
+k <- round(sqrt(nrow(train)))
+classif <- knn(train, testStandardized, y, k = k, prob=TRUE)
+prob <- attr(classif, "prob")
+
+
+require(dplyr)
+dataf <- bind_rows(mutate(testUnstandardized,
+                         prob=prob,
+                         cls="1",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)),
+                  mutate(testUnstandardized,
+                         prob=prob,
+                         cls="0",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)))
+ggplot(dataf) +
+  geom_point(aes(x=x, y=y, col=cls),
+             data = mutate(testUnstandardized, cls=classif),
+             size=0.5, alpha=0.2) +
+  geom_contour(aes(x=x, y=y, z=prob_cls, group=cls, color=cls),
+               bins=1,
+               data=dataf) +
+  scale_color_viridis_d() +
+  geom_point(aes(x=x, y=y, color=cls),
+           data=data.frame(x=trainUnstandardized[,1], y=trainUnstandardized[,2], cls=factor(GetBenchmarkData('haber')[[2]])))+
+  labs(x="age", y="nodes") + 
+  theme_bw() +
+  labs(color="Class") +
+  theme(text = element_text(size=17), legend.position='none')
+
+```
+
+To check the validity of the decision boundary
+
+```{r}
+train <- GetBenchmarkData('haber', TRUE)[[1]][,c(1,3)]
+trainUnstandardized <-  GetBenchmarkData('haber', FALSE)[[1]][,c(1,3)]
+y <- GetBenchmarkData('haber', FALSE)[[2]]
+
+lastOutcome <- FALSE
+for(nodes in 1:100){
+  test <- c(55, nodes)
+
+  sd1 <- sd(trainUnstandardized[,1])
+  mu1 <- mean(trainUnstandardized[,1])
+  test[1] <- (test[1] - mu1)/sd1
+  
+  sd2 <- sd(trainUnstandardized[,2])
+  mu2 <- mean(trainUnstandardized[,2])
+  test[2] <- (test[2] - mu2)/sd2
+  
+  
+  out <- knn(train, test, y, k=round(sqrt(nrow(train))), prob=TRUE)
+  # out
+  if (out[1] == 1 && lastOutcome == FALSE){
+    lastOutcome <- TRUE
+    cat("Changing to 1 at ", nodes, "\n")
+  } else if (out [1] == 0 && lastOutcome == TRUE) {
+    lastOutcome <- FALSE
+    cat("Changing back to 0 at ", nodes, "\n")
+  }
+}
+
+
+```
+
+
+# Year vs year with decision boundary
+```{r}
+train <- GetBenchmarkData('haber')[[1]][,c(2,2)]
+trainUnstandardized <- GetBenchmarkData('haber', FALSE)[[1]][,c(2,2)]
+
+y <- GetBenchmarkData('haber')[[2]]
+testUnstandardized <- expand.grid(x=seq(min(trainUnstandardized[,1]),
+                                        max(trainUnstandardized[,1]), by=1), 
+                                  y=seq(min(trainUnstandardized[,2]), 
+                                        max(trainUnstandardized[,2]), by=1))
+
+testStandardized <- testUnstandardized
+sd1 <- sd(trainUnstandardized[,1])
+mu1 <- mean(trainUnstandardized[,1])
+testStandardized[,1] <- (testStandardized[,1] - mu1)/sd1
+  
+sd2 <- sd(trainUnstandardized[,2])
+mu2 <- mean(trainUnstandardized[,2])
+testStandardized[,2] <- (testStandardized[,2] - mu2)/sd2
+  
+k <- round(sqrt(nrow(train)))
+classif <- knn(train, testStandardized, y, k = k, prob=TRUE)
+prob <- attr(classif, "prob")
+
+require(dplyr)
+dataf <- bind_rows(mutate(testUnstandardized,
+                         prob=prob,
+                         cls="1",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)),
+                  mutate(testUnstandardized,
+                         prob=prob,
+                         cls="0",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)))
+ggplot(dataf) +
+  geom_point(aes(x=x, y=y, col=cls),
+             data = mutate(testUnstandardized, cls=classif),
+             size=0.5, alpha=0.2) +
+  geom_contour(aes(x=x, y=y, z=prob_cls, group=cls, color=cls),
+               bins=1,
+               data=dataf) +
+  scale_color_viridis_d() +
+  scale_x_continuous(breaks=57:69) +
+  scale_y_continuous(breaks=57:69) +
+   geom_jitter(aes(x=x, y=y, color=cls), width=0.3, height=0.3, data=data.frame(x=trainUnstandardized[,1], y=trainUnstandardized[,2], cls=factor(GetBenchmarkData('haber')[[2]]))) +
+  labs(x="year", y="year") + 
+  theme_bw() +
+  labs(color="Class") +
+  theme(text = element_text(size=17), legend.position='none')
+```
+
+# And the same with contour plot for nodes-nodes
+```{r}
+train <- GetBenchmarkData('haber')[[1]][,c(3,3)]
+trainUnstandardized <- GetBenchmarkData('haber', FALSE)[[1]][,c(3,3)]
+
+y <- GetBenchmarkData('haber')[[2]]
+testUnstandardized <- expand.grid(x=seq(min(trainUnstandardized[,1]),
+                                        max(trainUnstandardized[,1]), by=1), 
+                                  y=seq(min(trainUnstandardized[,2]), 
+                                        max(trainUnstandardized[,2]), by=1))
+
+testStandardized <- testUnstandardized
+sd1 <- sd(trainUnstandardized[,1])
+mu1 <- mean(trainUnstandardized[,1])
+testStandardized[,1] <- (testStandardized[,1] - mu1)/sd1
+  
+sd2 <- sd(trainUnstandardized[,2])
+mu2 <- mean(trainUnstandardized[,2])
+testStandardized[,2] <- (testStandardized[,2] - mu2)/sd2
+  
+k <- round(sqrt(nrow(train)))
+classif <- knn(train, testStandardized, y, k = k, prob=TRUE)
+prob <- attr(classif, "prob")
+
+
+require(dplyr)
+dataf <- bind_rows(mutate(testUnstandardized,
+                         prob=prob,
+                         cls="1",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)),
+                  mutate(testUnstandardized,
+                         prob=prob,
+                         cls="0",
+                         prob_cls=ifelse(classif==cls,
+                                         1, 0)))
+ggplot(dataf) +
+  geom_point(aes(x=x, y=y, col=cls),
+             data = mutate(testUnstandardized, cls=classif),
+             size=0.5, alpha=0.2) +
+  geom_contour(aes(x=x, y=y, z=prob_cls, group=cls, color=cls),
+               bins=1,
+               data=dataf) +
+  scale_color_viridis_d(labels=c("survived", "died")) +
+  scale_shape_discrete(labels=c("survived", "died")) +
+   geom_jitter(aes(x=x, y=y, color=cls), width=1, height=1, data=data.frame(x=trainUnstandardized[,1], y=trainUnstandardized[,2], cls=factor(GetBenchmarkData('haber')[[2]]))) +
+  labs(x="nodes", y="nodes") + 
+  theme_bw() +
+  labs(color="Class") +
+   theme(text = element_text(size=17))
+```
+
